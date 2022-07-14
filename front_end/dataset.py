@@ -172,60 +172,6 @@ class EvalDataset(Dataset):
         return np.stack(feats_mmap[dur_offset: dur_offset + selected_dur]).transpose((1, 0))
 
 
-class EvalIterDataset(IterableDataset, ABC):
-    def __init__(self, source='voxceleb1_test', feat_dim=40, start_idx=0, end_idx=500, selected_dur=None):
-        super(EvalIterDataset).__init__()
-        """
-        :param start_idx: start offset of a partition of a dataset, a partition is like dataset[start_idx: end_idx]
-        :param end_idx: end index of a partition of the whole dataset
-        :param selected_dur: duration of randomly selected segments in No. of frames
-                This is for duration mismatch experiments. The default None means using full-length utts.
-        """
-        self.source = source
-        self.feat_dim = feat_dim
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.selected_dur = selected_dur
-
-        self._load_feat_info()
-
-    def _load_feat_info(self):
-        utt2frame_info_file = f'eval/feats/{self.source}_utt2frame_info'
-        self.utt2frame_info = rd_utt2x(utt2frame_info_file, x_keys=['n_frame', 'frame_offset'])
-        self.n_utterance = self.utt2frame_info.shape[0]
-
-    def __iter__(self):
-        worker_info = get_worker_info()
-
-        if worker_info is None:
-            start_idx, end_idx = self.start_idx, self.end_idx
-        else:
-            n_utts_per_worker = int(math.ceil((self.end_idx - self.start_idx) / worker_info.num_workers))
-            worker_id = worker_info.id
-            start_idx = self.start_idx + worker_id * n_utts_per_worker
-            end_idx = min(start_idx + n_utts_per_worker, self.end_idx)
-
-        return self.generate_sample(start_idx, end_idx)
-
-    def generate_sample(self, start_idx, end_idx):
-        total_num_frames_file = f'eval/feats/{self.source}_total_num_frames'
-        memmap_file = f'eval/feats/{self.source}.mmap'
-        total_n_frames = rd_single_parameter(total_num_frames_file)
-        feats_mmap = np.memmap(memmap_file, dtype='float32', mode='r', shape=(total_n_frames, self.feat_dim))
-
-        frame_offsets = self.utt2frame_info['frame_offset']
-        n_frames = self.utt2frame_info['n_frame']
-
-        for idx in range(start_idx, end_idx):
-            selected_dur, dur_offset = n_frames[idx], frame_offsets[idx]  # use full length of each utt
-
-            if self.selected_dur is not None and 0 < self.selected_dur <= n_frames[idx]:
-                selected_dur = self.selected_dur
-                dur_offset = frame_offsets[idx] + sample_frame_offset(n_frames[idx], selected_dur)
-
-            yield np.stack(feats_mmap[dur_offset: dur_offset + selected_dur]).transpose((1, 0))
-
-
 def sample_utt_int_per_spk(utt_ints_per_spk):
     """
     Randomly select an utterance (index) per speaker
