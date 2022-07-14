@@ -174,33 +174,6 @@ class AMSoftmaxLayer(nn.Module):
         return amsoftmax_logits, cos_theta  # return cos_theta as linear logits
 
 
-class AAMSoftmaxLayer(nn.Module):
-    def __init__(self, in_nodes=256, n_class=5000, m=0.2, s=30.):
-        super(AAMSoftmaxLayer, self).__init__()
-        self.m = m
-        self.s = s
-        self.weight = torch.nn.Parameter(torch.randn(n_class, in_nodes), requires_grad=True)
-        nn.init.xavier_normal_(self.weight, gain=1)
-
-        self.threshold = math.cos(math.pi - self.m)
-        self.cos_margim = math.sin(math.pi - self.m) * self.m
-
-    def forward(self, x, label):
-        cos_theta = F.linear(F.normalize(x, dim=1), F.normalize(self.weight, dim=1)).clamp(-1. + 1e-7, 1. - 1e-7)
-        sin_theta = torch.sqrt((1.0 - torch.mul(cos_theta, cos_theta)).clamp(1e-7, 1. - 1e-7))
-        phi = cos_theta * math.cos(self.m) - sin_theta * math.sin(self.m)  # cos(theta + m)
-
-        # When 0 <= theta + m < pi, then 0 <= theta < pi - m, and we have cos(theta) > cos(pi - m).
-        # When theta + m >= pi or cos(theta) <= cos(pi - m), we use additive margin in the cosine domain.
-        phi = torch.where(cos_theta > self.threshold, phi, cos_theta - self.cos_margim)
-
-        one_hot = torch.scatter(torch.zeros_like(cos_theta), 1, label.view(-1, 1).long(), 1)
-        aamsoftmax_logits = self.s * torch.where(one_hot.bool(), phi, cos_theta)
-        # aamsoftmax_logits = self.s * ((one_hot * phi) + ((1.0 - one_hot) * cos_theta))
-
-        return aamsoftmax_logits, cos_theta  # return cos_theta as linear logits
-
-
 def conv1d_bn_relu_layer(in_channels, out_channels, kernel_size, stride=1, dilation=1):
     return nn.Sequential(OrderedDict([('conv', nn.Conv1d(in_channels, out_channels, kernel_size, stride=(stride,),
                                                          padding='same', dilation=(dilation,), bias=False)),
